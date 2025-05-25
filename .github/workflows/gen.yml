@@ -36,8 +36,12 @@ jobs:
           $CurrentDateTime = (Get-Date -Format "yyyyMMdd-HHmmss")
           $Poem = Invoke-RestMethod -Uri "https://v1.hitokoto.cn/?c=i&encode=text&max_length=15"
           
+          if ($Poem.EndsWith("。") -or $Poem.EndsWith("？") -or $Poem.EndsWith("!")) {
+              $Poem = $Poem.Substring(0, $Poem.Length - 1)
+          }
+
           if ([string]::IsNullOrWhiteSpace($Poem)) {
-            $Poem = "今日无言。"
+            $Poem = "青青子衿，悠悠我心"
           }
           if ($Poem.Length -gt 100) {
             $Poem = "$($Poem.Substring(0, 100))..."
