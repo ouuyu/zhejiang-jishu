@@ -1,0 +1,59 @@
+name: Merge PDFs and Release
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build_and_release:
+    runs-on: windows-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run Python script
+        env:
+          PYTHONIOENCODING: UTF-8
+        run: python merge.py
+
+      - name: Get poem and current datetime
+        id: get_info
+        shell: pwsh
+        run: |
+          $CurrentDateTime = (Get-Date -Format "yyyyMMdd-HHmmss")
+          $Poem = Invoke-RestMethod -Uri "https://v1.hitokoto.cn/?c=i&encode=text&max_length=15"
+          
+          if ([string]::IsNullOrWhiteSpace($Poem)) {
+            $Poem = "今日无言。"
+          }
+          if ($Poem.Length -gt 100) {
+            $Poem = "$($Poem.Substring(0, 100))..."
+          }
+          
+          echo "release_tag=$CurrentDateTime" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          echo "release_name=$Poem" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Create Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_info.outputs.release_tag }}
+          name: ${{ steps.get_info.outputs.release_name }}
+          draft: false
+          prerelease: false
+          files: merged_output_image.pdf
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

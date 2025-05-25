@@ -1,0 +1,3 @@
+Pillow
+pdf2image
+natsort
