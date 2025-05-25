@@ -5,8 +5,7 @@ import pdf2image
 from natsort import natsorted
 import subprocess
 
-# --- 配置常量 ---
-DPI = 300
+DPI = 400
 A4_MM = (210, 297)
 
 def mm_to_px(mm, dpi):
@@ -15,7 +14,6 @@ def mm_to_px(mm, dpi):
 A4_WIDTH_PX = mm_to_px(A4_MM[0], DPI)
 A4_HEIGHT_PX = mm_to_px(A4_MM[1], DPI)
 
-# --- 字体设置 ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_FONT_FILENAME = "SourceHanSerifCN.otf" 
 FONT_PATH = os.path.join(SCRIPT_DIR, DEFAULT_FONT_FILENAME)
@@ -28,7 +26,6 @@ else:
     FONT_LOADED_SUCCESSFULLY = True
     print(f"将使用字体: {FONT_PATH}")
 
-# 图像处理函数
 def place_image_on_a4_canvas(page_image_pil):
     a4_canvas = Image.new('RGB', (A4_WIDTH_PX, A4_HEIGHT_PX), 'white')
     img_w, img_h = page_image_pil.size
@@ -73,7 +70,6 @@ def add_text_to_image(image_pil, text_info_list):
                 pass
     return image_pil
 
-# --- 主合并函数 ---
 def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler_path='bin', input_dir='pdfs'):
     if poppler_path:
         poppler_bin_path = os.path.join(poppler_path, 'pdfinfo')
@@ -90,12 +86,10 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
     else:
         print("警告：未指定Poppler路径，将依赖系统PATH。")
 
-    # 检查输入目录是否存在
     if not os.path.isdir(input_dir):
         print(f"错误：输入目录 '{input_dir}' 不存在。请创建该目录并将PDF文件放入其中。")
         sys.exit(1)
 
-    # 从指定目录读取PDF文件
     pdf_files_in_dir = []
     for f in os.listdir(input_dir):
         full_path = os.path.join(input_dir, f)
@@ -110,13 +104,12 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
 
     print(f"找到以下 PDF 文件：")
     for i, fname in enumerate(pdf_files_in_dir):
-        print(f"  {i+1}. {os.path.basename(fname)}") # 显示文件名而不是完整路径
+        print(f"   {i+1}. {os.path.basename(fname)}")
     print("-" * 30)
 
     all_final_a4_images = []
     toc_entries_metadata = []
 
-    # --- 阶段 1: 预处理，获取每个PDF的页数信息 ---
     print("阶段 1: 正在扫描PDF文件获取页数信息...")
     for pdf_path in pdf_files_in_dir:
         pdf_name = os.path.basename(pdf_path)
@@ -133,7 +126,6 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
         print("没有可处理的PDF文件信息。")
         sys.exit(1)
 
-    # --- 阶段 2: 生成目录图片 ---
     print("\n阶段 2: 正在生成目录图片...")
     toc_images = []
     if toc_entries_metadata:
@@ -145,24 +137,36 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
         toc_lines = []
         toc_lines.append(("文档目录", 'center', A4_HEIGHT_PX * 0.05, TOC_TITLE_FONT_SIZE, True))
 
+        dummy_draw = ImageDraw.Draw(Image.new('RGB', (1, 1)))
+        try:
+            temp_font = ImageFont.truetype(FONT_PATH, TOC_ENTRY_FONT_SIZE) if FONT_LOADED_SUCCESSFULLY else ImageFont.load_default()
+        except IOError:
+            temp_font = ImageFont.load_default()
+        
+        text_bbox_estimate = dummy_draw.textbbox((0,0), "测试文本", font=temp_font)
+        estimated_line_height = text_bbox_estimate[3] - text_bbox_estimate[1]
+        
+        start_y_for_entries = A4_HEIGHT_PX * 0.05 + TOC_TITLE_FONT_SIZE * 3
+
+        lines_per_toc_page_estimate = int((A4_HEIGHT_PX * 0.9 - start_y_for_entries) / (estimated_line_height * 1.5))
+        if lines_per_toc_page_estimate < 1: 
+            lines_per_toc_page_estimate = 1
+        
+        num_toc_pages_estimated = (len(toc_entries_metadata) + lines_per_toc_page_estimate -1 ) // lines_per_toc_page_estimate
+        if len(toc_entries_metadata) == 0:
+            num_toc_pages_estimated = 0
+
+        current_content_page_offset = num_toc_pages_estimated
+
         temp_content_page_idx = 1
         for entry_meta in toc_entries_metadata:
-            entry_meta['start_page_placeholder'] = temp_content_page_idx
-            temp_content_page_idx += entry_meta['page_count']
-            entry_meta['end_page_placeholder'] = temp_content_page_idx -1
-
-        lines_per_toc_page_estimate = (A4_HEIGHT_PX * 0.8) // (TOC_ENTRY_FONT_SIZE * 1.5)
-        if lines_per_toc_page_estimate < 1 : lines_per_toc_page_estimate = 1
-        
-        num_toc_pages_estimated = 1 + (len(toc_entries_metadata) // lines_per_toc_page_estimate)
-        if len(toc_entries_metadata) % lines_per_toc_page_estimate == 0 and len(toc_entries_metadata) > 0 :
-             num_toc_pages_estimated = (len(toc_entries_metadata) // lines_per_toc_page_estimate)
-
-        for entry_meta in toc_entries_metadata:
-            entry_meta['start_page'] = entry_meta['start_page_placeholder'] + num_toc_pages_estimated
-            entry_meta['end_page'] = entry_meta['end_page_placeholder'] + num_toc_pages_estimated
+            entry_meta['start_page'] = current_content_page_offset + temp_content_page_idx
+            entry_meta['end_page'] = current_content_page_offset + temp_content_page_idx + entry_meta['page_count'] -1
+            
             clean_name = os.path.splitext(entry_meta['name'])[0]
             toc_lines.append((clean_name, entry_meta['start_page'], entry_meta['end_page'], TOC_ENTRY_FONT_SIZE))
+            
+            temp_content_page_idx += entry_meta['page_count']
 
         current_toc_page_image = Image.new('RGB', (A4_WIDTH_PX, A4_HEIGHT_PX), 'white')
         draw = ImageDraw.Draw(current_toc_page_image)
@@ -172,7 +176,7 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
         toc_page_counter = 1
 
         for i, item in enumerate(toc_lines):
-            if isinstance(item[0], str) and len(item) > 4 and item[4] == True: # 标题行
+            if isinstance(item[0], str) and len(item) > 4 and item[4] == True:
                 text, x_align, y_offset, font_size, is_title = item
                 try:
                     font = ImageFont.truetype(FONT_PATH, font_size) if FONT_LOADED_SUCCESSFULLY else ImageFont.load_default()
@@ -185,10 +189,10 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
                 y_cursor = y_offset 
                 draw.text((x_pos, y_cursor), text, font=font, fill=TOC_TEXT_COLOR)
                 y_cursor += (text_bbox[3] - text_bbox[1]) * 2
-            else: # 普通条目
+            else:
                 filename, start_page, end_page, font_size = item
                 if first_toc_page and y_cursor == 0:
-                    y_cursor = A4_HEIGHT_PX * 0.05 + TOC_TITLE_FONT_SIZE * 3
+                    y_cursor = start_y_for_entries
                 elif y_cursor == 0:
                     y_cursor = A4_HEIGHT_PX * 0.05
 
@@ -197,11 +201,9 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
                 except IOError:
                     font = ImageFont.load_default()
 
-                # 文件名居左
                 filename_x = A4_WIDTH_PX * 0.1
                 draw.text((filename_x, y_cursor), filename, font=font, fill=TOC_TEXT_COLOR)
 
-                # 页码居右
                 page_num_text = f"第 {int(start_page)} - {int(end_page)} 页"
                 page_num_font = ImageFont.truetype(FONT_PATH, font_size) if FONT_LOADED_SUCCESSFULLY else ImageFont.load_default()
                 page_num_bbox = draw.textbbox((0,0), page_num_text, font=page_num_font)
@@ -212,7 +214,7 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
                 text_bbox = draw.textbbox((0,0), filename, font=font)
                 text_height = text_bbox[3] - text_bbox[1]
 
-                if y_cursor + text_height > A4_HEIGHT_PX * 0.9:
+                if y_cursor + text_height * 1.5 > A4_HEIGHT_PX * 0.9 and i < len(toc_lines) - 1 :
                     page_num_text_toc = f"第 {toc_page_counter} 页"
                     add_text_to_image(current_toc_page_image, [(page_num_text_toc, A4_WIDTH_PX - mm_to_px(30,DPI), A4_HEIGHT_PX - mm_to_px(15,DPI), TOC_PAGE_NUM_FONT_SIZE, TOC_TEXT_COLOR)])
                     toc_images.append(current_toc_page_image)
@@ -221,11 +223,11 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
                     current_toc_page_image = Image.new('RGB', (A4_WIDTH_PX, A4_HEIGHT_PX), 'white')
                     draw = ImageDraw.Draw(current_toc_page_image)
                     y_cursor = A4_HEIGHT_PX * 0.05
-                
-                y_cursor += text_height * 1.5
+                else:
+                     y_cursor += text_height * 1.5
             first_toc_page = False
         
-        if current_toc_page_image:
+        if current_toc_page_image and toc_page_counter <= num_toc_pages_estimated:
             page_num_text_toc = f"第 {toc_page_counter} 页"
             add_text_to_image(current_toc_page_image, [(page_num_text_toc, A4_WIDTH_PX - mm_to_px(30,DPI), A4_HEIGHT_PX - mm_to_px(15,DPI), TOC_PAGE_NUM_FONT_SIZE, TOC_TEXT_COLOR)])
             toc_images.append(current_toc_page_image)
@@ -233,16 +235,13 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
         all_final_a4_images.extend(toc_images)
         print(f"目录图片生成完毕，共 {len(toc_images)} 页。")
 
-    # --- 阶段 3: 处理内容PDF页面 ---
     print("\n阶段 3: 正在转换内容PDF页面并添加文本...")
-    actual_content_page_start_num = len(toc_images) + 1
+    current_overall_page_num = len(all_final_a4_images) + 1 
     
-    current_overall_page_num = actual_content_page_start_num
-
     for entry_meta in toc_entries_metadata:
         pdf_path = entry_meta['path']
-        pdf_name = os.path.basename(pdf_path) # 这里使用 basename 来获取文件名，避免路径问题
-        print(f"  处理文件: {pdf_name} ...")
+        pdf_name = os.path.basename(pdf_path)
+        print(f"   处理文件: {pdf_name} ...")
         try:
             page_images_from_pdf = pdf2image.convert_from_path(pdf_path, dpi=DPI, poppler_path=poppler_path)
 
@@ -278,7 +277,6 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
         except Exception as e:
             print(f"错误：处理PDF文件 '{pdf_name}' 时发生错误: {e}")
 
-    # --- 阶段 4: 保存所有处理好的图片到一个PDF文件 ---
     print("\n阶段 4: 正在合并所有图片到最终PDF...")
     if not all_final_a4_images:
         print("没有生成任何图片页面。")
@@ -320,11 +318,9 @@ def merge_pdfs_via_images(output_filename="merged_output_as_images.pdf", poppler
 
 
 if __name__ == '__main__':
-    # --- Poppler路径配置 ---
     poppler_path_manual = r'bin'
     # poppler_path_manual = None 
 
-    # 指定PDF文件所在的目录
     input_pdf_directory = 'pdfs'
 
     if len(sys.argv) > 1:

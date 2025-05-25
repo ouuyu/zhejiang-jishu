@@ -34,7 +34,7 @@ jobs:
         shell: pwsh
         run: |
           $CurrentDateTime = (Get-Date -Format "yyyyMMdd-HHmmss")
-          $Poem = Invoke-RestMethod -Uri "https://v1.hitokoto.cn/?c=i&encode=text&max_length=15"
+          $Poem = Invoke-RestMethod -Uri "https://v1.hitokoto.cn/?c=i&encode=text&min_length=10&max_length=16"
           
           if ($Poem.EndsWith("。") -or $Poem.EndsWith("？") -or $Poem.EndsWith("!")) {
               $Poem = $Poem.Substring(0, $Poem.Length - 1)
