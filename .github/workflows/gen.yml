@@ -3,7 +3,7 @@ name: Merge PDFs and Release
 on:
   push:
     branches:
-      - master
+      - main
 
 jobs:
   build_and_release:
